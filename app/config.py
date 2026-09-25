@@ -18,5 +18,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12  # 12 小时
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin123"
 
+# 新建站点的默认时区（须为合法 IANA 名称，可用 APP_DEFAULT_TIMEZONE 覆盖）。
+# 老库迁移、未显式指定时区的站点均回退到此值；启动时由 migrations 统一校验。
+DEFAULT_TIMEZONE = os.getenv("APP_DEFAULT_TIMEZONE", "Asia/Shanghai")
+
 # 服务端口（使用非常见端口）
 APP_PORT = 7634

@@ -1,17 +1,20 @@
 """首次启动时初始化数据库：建表 + 内置管理员 + 种子业务数据。"""
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
 from .auth import hash_password
 from .config import DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME
 from .database import Base, SessionLocal, engine
+from .migrations import run_migrations
 from .models import Station, SwapRecord, User, Vehicle
+from .tz_utils import utc_now_naive
 
 
 def init_db() -> None:
-    """创建所有表并灌入种子数据（幂等：已存在则跳过）。"""
+    """创建所有表、执行兼容迁移并灌入种子数据（幂等：已存在则跳过）。"""
     Base.metadata.create_all(bind=engine)
+    run_migrations()
     db: Session = SessionLocal()
     try:
         _seed_admin(db)
@@ -37,11 +40,17 @@ def _seed_business(db: Session) -> None:
     if db.query(Station).count() > 0:
         return
 
+    # 站点分布在不同时区，其中纽约站实行夏令时，用于验证营业日跨零点与
+    # DST 跳变的统计口径。
     stations = [
-        Station(name="城东物流园换电站", address="城东大道 128 号", slot_total=20, battery_ready=14, status="running"),
-        Station(name="临港枢纽换电站", address="临港四路 9 号", slot_total=16, battery_ready=11, status="running"),
-        Station(name="北郊配送中心换电站", address="北环高速出口 3 公里", slot_total=12, battery_ready=4, status="maintenance"),
-        Station(name="高新园区换电站", address="科创路 66 号", slot_total=24, battery_ready=20, status="running"),
+        Station(name="城东物流园换电站", address="城东大道 128 号", timezone="Asia/Shanghai",
+                slot_total=20, battery_ready=14, status="running"),
+        Station(name="临港枢纽换电站", address="临港四路 9 号", timezone="Asia/Shanghai",
+                slot_total=16, battery_ready=11, status="running"),
+        Station(name="北郊配送中心换电站", address="北环高速出口 3 公里", timezone="Asia/Shanghai",
+                slot_total=12, battery_ready=4, status="maintenance"),
+        Station(name="纽约港保税区换电站", address="Port Jersey Blvd 1", timezone="America/New_York",
+                slot_total=24, battery_ready=20, status="running"),
     ]
     db.add_all(stations)
     db.flush()
@@ -56,7 +65,8 @@ def _seed_business(db: Session) -> None:
     db.add_all(vehicles)
     db.flush()
 
-    now = datetime.utcnow()
+    # swapped_at 一律 naive UTC。
+    now = utc_now_naive()
     swaps = [
         SwapRecord(vehicle_id=vehicles[0].id, station_id=stations[0].id, soc_before=12.0, soc_after=100.0, swapped_at=now - timedelta(hours=2)),
         SwapRecord(vehicle_id=vehicles[1].id, station_id=stations[1].id, soc_before=8.0, soc_after=98.0, swapped_at=now - timedelta(hours=5)),
