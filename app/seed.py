@@ -1,10 +1,11 @@
-"""首次启动时初始化数据库：建表 + 内置管理员 + 种子业务数据。"""
-from datetime import datetime, timedelta
+"""首次启动时初始化数据库：建表 + 轻量迁移 + 内置管理员 + 种子业务数据。"""
+from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from .auth import hash_password
-from .config import DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME
+from .config import DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME, DEFAULT_TIMEZONE
 from .database import Base, SessionLocal, engine
 from .models import Station, SwapRecord, User, Vehicle
 
@@ -12,6 +13,7 @@ from .models import Station, SwapRecord, User, Vehicle
 def init_db() -> None:
     """创建所有表并灌入种子数据（幂等：已存在则跳过）。"""
     Base.metadata.create_all(bind=engine)
+    _migrate_schema()
     db: Session = SessionLocal()
     try:
         _seed_admin(db)
@@ -19,6 +21,20 @@ def init_db() -> None:
         db.commit()
     finally:
         db.close()
+
+
+def _migrate_schema() -> None:
+    """轻量迁移：为已有数据库补充 stations.timezone 列（旧站点回填平台默认时区）。
+
+    历史 swap_records.swapped_at 本就是无时区 UTC 字符串，与新的存储格式
+    完全一致，读取时统一按 UTC 解释（见 models.UTCDateTime），无需改写数据。
+    """
+    with engine.begin() as conn:
+        station_cols = {c["name"] for c in inspect(conn).get_columns("stations")}
+        if "timezone" not in station_cols:
+            conn.execute(
+                text(f"ALTER TABLE stations ADD COLUMN timezone VARCHAR(64) NOT NULL DEFAULT '{DEFAULT_TIMEZONE}'")
+            )
 
 
 def _seed_admin(db: Session) -> None:
@@ -38,10 +54,10 @@ def _seed_business(db: Session) -> None:
         return
 
     stations = [
-        Station(name="城东物流园换电站", address="城东大道 128 号", slot_total=20, battery_ready=14, status="running"),
-        Station(name="临港枢纽换电站", address="临港四路 9 号", slot_total=16, battery_ready=11, status="running"),
-        Station(name="北郊配送中心换电站", address="北环高速出口 3 公里", slot_total=12, battery_ready=4, status="maintenance"),
-        Station(name="高新园区换电站", address="科创路 66 号", slot_total=24, battery_ready=20, status="running"),
+        Station(name="城东物流园换电站", address="城东大道 128 号", slot_total=20, battery_ready=14, status="running", timezone="Asia/Shanghai"),
+        Station(name="临港枢纽换电站", address="临港四路 9 号", slot_total=16, battery_ready=11, status="running", timezone="Asia/Shanghai"),
+        Station(name="北郊配送中心换电站", address="北环高速出口 3 公里", slot_total=12, battery_ready=4, status="maintenance", timezone="Asia/Shanghai"),
+        Station(name="高新园区换电站", address="科创路 66 号", slot_total=24, battery_ready=20, status="running", timezone="Asia/Shanghai"),
     ]
     db.add_all(stations)
     db.flush()
@@ -56,7 +72,7 @@ def _seed_business(db: Session) -> None:
     db.add_all(vehicles)
     db.flush()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     swaps = [
         SwapRecord(vehicle_id=vehicles[0].id, station_id=stations[0].id, soc_before=12.0, soc_after=100.0, swapped_at=now - timedelta(hours=2)),
         SwapRecord(vehicle_id=vehicles[1].id, station_id=stations[1].id, soc_before=8.0, soc_after=98.0, swapped_at=now - timedelta(hours=5)),

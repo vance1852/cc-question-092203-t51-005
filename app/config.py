@@ -4,10 +4,16 @@
 """
 import os
 
+from .timeutil import validate_timezone
+
 # 数据库文件路径（SQLite，本地文件，开箱即用）
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "data.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+# 平台默认统计时区（IANA 名称），仪表盘/换电记录查询未指定时区时使用；
+# 可用环境变量覆盖，启动即校验，非法配置直接报错
+DEFAULT_TIMEZONE = validate_timezone(os.getenv("APP_DEFAULT_TIMEZONE", "Asia/Shanghai"))
 
 # JWT 配置
 SECRET_KEY = os.getenv("APP_SECRET_KEY", "swap-station-admin-dev-secret-key-change-me")
